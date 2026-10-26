@@ -23,29 +23,22 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Add upstream repository
           git remote add upstream https://github.com/BeamMP/BeamMP-Launcher.git || true
           git fetch upstream
           
-          # Determine your default branch (BeamMP-Launcher uses 'master')
           BRANCH="master"
           if git show-ref --verify --quiet refs/remotes/origin/main; then
             BRANCH="main"
           fi
           
           git checkout $BRANCH
-          
-          # Merge upstream changes
           git merge upstream/$BRANCH --no-edit || git merge upstream/main --no-edit || true
           
-          # --- WORKFLOW PROTECTION SAFETY NET ---
-          # Revert any modifications, additions, or deletions made to workflows during the merge
+          # Protect local GitHub workflows from upstream changes
           git checkout HEAD -- .github/workflows/ 2>/dev/null || true
           git reset .github/workflows/ 2>/dev/null || true
-          # Clean up any untracked workflow files that might have tried to sneak in
           git clean -fd .github/workflows/ 2>/dev/null || true
           
-          # Push changes back to your fork only if there's something new
           if git status --porcelain | grep -q .; then
             git commit -m "Auto-sync with upstream (protected workflows)" || true
             git push origin $BRANCH
