@@ -82,9 +82,10 @@ jobs:
           mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
           cp bin/BeamMP-Launcher AppDir/usr/bin/BeamMP-Launcher
 
-          # Generate a fallback 256x256 icon so appimagetool validates successfully
-          convert -size 256x256 xc:royalblue AppDir/usr/share/icons/hicolor/256x256/apps/beammp-launcher.png || true
-          cp AppDir/usr/share/icons/hicolor/256x256/apps/beammp-launcher.png AppDir/.DirIcon || true
+          # Generate fallback 256x256 PNG icons in both AppDir root and standard icon paths
+          convert -size 256x256 xc:royalblue AppDir/beammp-launcher.png || true
+          cp AppDir/beammp-launcher.png AppDir/.DirIcon || true
+          cp AppDir/beammp-launcher.png AppDir/usr/share/icons/hicolor/256x256/apps/beammp-launcher.png || true
 
           cat << EOF > AppDir/BeamMP-Launcher.desktop
           [Desktop Entry]
