@@ -60,7 +60,7 @@ jobs:
           git checkout "$TAG"
 
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake pkg-config curl zip unzip tar wget libfuse2
+          sudo apt-get install -y build-essential cmake pkg-config curl zip unzip tar wget libfuse2 imagemagick
 
           if [ -z "$VCPKG_ROOT" ]; then
             export VCPKG_ROOT="/usr/local/share/vcpkg"
@@ -77,15 +77,32 @@ jobs:
 
           mkdir -p release_assets
 
+          # 1. Build Universal AppImage (Click-and-run anywhere)
           mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
           cp bin/BeamMP-Launcher AppDir/usr/bin/BeamMP-Launcher
-          echo -e "[Desktop Entry]\nName=BeamMP Launcher\nExec=BeamMP-Launcher\nType=Application\nCategories=Game;" > AppDir/BeamMP-Launcher.desktop
+
+          # Generate a fallback 256x256 icon so appimagetool validates successfully
+          convert -size 256x256 xc:royalblue AppDir/usr/share/icons/hicolor/256x256/apps/beammp-launcher.png || true
+          cp AppDir/usr/share/icons/hicolor/256x256/apps/beammp-launcher.png AppDir/.DirIcon || true
+
+          cat << EOF > AppDir/BeamMP-Launcher.desktop
+          [Desktop Entry]
+          Name=BeamMP Launcher
+          Exec=BeamMP-Launcher
+          Icon=beammp-launcher
+          Type=Application
+          Categories=Game;
+          EOF
+
+          cp AppDir/BeamMP-Launcher.desktop AppDir/beammp-launcher.desktop
 
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
           ./appimagetool-x86_64.AppImage --appimage-extract
           ./squashfs-root/AppRun AppDir release_assets/BeamMP-Launcher-$TAG-x86_64.AppImage --no-appstream
 
+          # 2. Build .deb Package (1-click graphical install for Ubuntu/Debian/Mint)
           mkdir -p deb_package/DEBIAN
           mkdir -p deb_package/usr/bin
           cp bin/BeamMP-Launcher deb_package/usr/bin/beammp-launcher
