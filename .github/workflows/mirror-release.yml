@@ -2,8 +2,8 @@ name: Mirror Upstream Release and Build Click-and-Install
 
 on:
   schedule:
-    - cron: '0 */6 * * *' # Checks every 6 hours for a new upstream release
-  workflow_dispatch: # Allows manual trigger from the Actions tab
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -22,16 +22,26 @@ jobs:
       - name: Check Latest Upstream Release
         id: check_release
         run: |
-          UPSTREAM_TAG=$(curl -s https://api.github.com/repos/BeamMP/BeamMP-Launcher/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+          UPSTREAM_TAG=$(curl -s https://api.github.com/repos/BeamMP/BeamMP-Launcher/releases/latest | jq -r '.tag_name // empty')
+          if [ -z "$UPSTREAM_TAG" ]; then
+            echo "Failed to determine the latest upstream tag."
+            exit 1
+          fi
+
           echo "Latest upstream tag: $UPSTREAM_TAG"
-          
-          if gh release view "$UPSTREAM_TAG" --repo ${{ github.repository }} &>/dev/null; then
-            echo "RELEASE_EXISTS=true" >> $GITHUB_OUTPUT
-            echo "Release $UPSTREAM_TAG already exists. Skipping."
+          echo "TAG=$UPSTREAM_TAG" >> "$GITHUB_OUTPUT"
+
+          if gh release view "$UPSTREAM_TAG" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' >/tmp/release_assets.txt 2>/dev/null; then
+            if grep -Eq 'BeamMP-Launcher-.*(x86_64\.AppImage|amd64\.deb)$' /tmp/release_assets.txt; then
+              echo "RELEASE_EXISTS=true" >> "$GITHUB_OUTPUT"
+              echo "Mirror assets already exist for $UPSTREAM_TAG. Skipping build."
+            else
+              echo "RELEASE_EXISTS=false" >> "$GITHUB_OUTPUT"
+              echo "Release exists but is missing click-and-install assets. Building mirror assets for $UPSTREAM_TAG."
+            fi
           else
-            echo "RELEASE_EXISTS=false" >> $GITHUB_OUTPUT
-            echo "New release found: $UPSTREAM_TAG"
-            echo "TAG=$UPSTREAM_TAG" >> $GITHUB_OUTPUT
+            echo "RELEASE_EXISTS=false" >> "$GITHUB_OUTPUT"
+            echo "No mirror release exists yet for $UPSTREAM_TAG. Building one."
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -41,10 +51,10 @@ jobs:
         run: |
           TAG="${{ steps.check_release.outputs.TAG }}"
           CLEAN_VER="${TAG#v}"
-          
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          
+
           git remote add upstream https://github.com/BeamMP/BeamMP-Launcher.git || true
           git fetch upstream --tags
           git checkout "$TAG"
@@ -56,7 +66,6 @@ jobs:
             export VCPKG_ROOT="/usr/local/share/vcpkg"
           fi
 
-          # Compile with C++20 support for std::format
           cmake -S . -B bin \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_CXX_STANDARD=20 \
@@ -68,22 +77,19 @@ jobs:
 
           mkdir -p release_assets
 
-          # 1. Build Universal AppImage (Click-and-run anywhere)
           mkdir -p AppDir/usr/bin
           cp bin/BeamMP-Launcher AppDir/usr/bin/BeamMP-Launcher
           echo -e "[Desktop Entry]\nName=BeamMP Launcher\nExec=BeamMP-Launcher\nType=Application\nCategories=Game;" > AppDir/BeamMP-Launcher.desktop
-          
+
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
           ./appimagetool-x86_64.AppImage --appimage-extract
           ./squashfs-root/AppRun AppDir release_assets/BeamMP-Launcher-$TAG-x86_64.AppImage
 
-          # 2. Build .deb Package (1-click graphical install for Ubuntu/Debian/Mint)
           mkdir -p deb_package/DEBIAN
           mkdir -p deb_package/usr/bin
-          
           cp bin/BeamMP-Launcher deb_package/usr/bin/beammp-launcher
-          
+
           cat << EOF > deb_package/DEBIAN/control
           Package: beammp-launcher
           Version: $CLEAN_VER
@@ -93,7 +99,7 @@ jobs:
           Maintainer: Automated Mirror <noreply@github.com>
           Description: Official launcher for BeamMP (Multiplayer mod for BeamNG.drive)
           EOF
-          
+
           dpkg-deb --build deb_package release_assets/BeamMP-Launcher-$TAG-amd64.deb
 
       - name: Publish Click-and-Install Release
@@ -106,9 +112,13 @@ jobs:
           TITLE=$(echo "$RELEASE_JSON" | jq -r '.name')
           BODY=$(echo "$RELEASE_JSON" | jq -r '.body')
 
-          gh release create "$TAG" \
-            --repo "${{ github.repository }}" \
-            --title "$TITLE" \
-            --notes "$BODY" \
-            release_assets/*.AppImage \
-            release_assets/*.deb
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "$TAG" release_assets/*.AppImage release_assets/*.deb --repo "${{ github.repository }}" --clobber
+          else
+            gh release create "$TAG" \
+              --repo "${{ github.repository }}" \
+              --title "$TITLE" \
+              --notes "$BODY" \
+              release_assets/*.AppImage \
+              release_assets/*.deb
+          fi
