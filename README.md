@@ -1,4 +1,3 @@
-```markdown
 # BeamMP-Launcher (Linux Automated Mirror)
 
 An unofficial, fully automated build mirror and packaging distribution repository for the official [BeamMP-Launcher](https://github.com/BeamMP/BeamMP-Launcher). 
@@ -100,11 +99,5 @@ OR IN CONNECTION WITH THE SOFTWARE, THE USE OF THE AUTOMATED BUILDS, OR OTHER
 DEALINGS IN THIS REPOSITORY.
 
 THIS IS AN UNOFFICIAL COMMUNITY MIRROR. USE AT YOUR OWN RISK.
-
-```
-
-```
-
-<FollowUp>Are you ready to commit this README to your repository?</FollowUp>
 
 ```
