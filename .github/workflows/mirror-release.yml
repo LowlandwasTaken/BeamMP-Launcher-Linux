@@ -1,4 +1,4 @@
-name: Mirror Upstream Release and Build Linux
+name: Mirror Upstream Release and Build Click-and-Install
 
 on:
   schedule:
@@ -36,10 +36,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup Environment and Build Linux Binary
+      - name: Setup Environment and Build
         if: steps.check_release.outputs.RELEASE_EXISTS == 'false'
         run: |
           TAG="${{ steps.check_release.outputs.TAG }}"
+          CLEAN_VER="${TAG#v}"
           
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -49,12 +50,13 @@ jobs:
           git checkout "$TAG"
 
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake pkg-config curl zip unzip tar
+          sudo apt-get install -y build-essential cmake pkg-config curl zip unzip tar wget libfuse2
 
           if [ -z "$VCPKG_ROOT" ]; then
             export VCPKG_ROOT="/usr/local/share/vcpkg"
           fi
 
+          # Compile with C++20 support for std::format
           cmake -S . -B bin \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_CXX_STANDARD=20 \
@@ -64,11 +66,37 @@ jobs:
 
           cmake --build bin --config Release
 
-          # Package the Linux binary into a compressed tarball
           mkdir -p release_assets
-          tar -czvf release_assets/BeamMP-Launcher-$TAG-Linux-x86_64.tar.gz -C bin BeamMP-Launcher
 
-      - name: Publish Mirror Release
+          # 1. Build Universal AppImage (Click-and-run anywhere)
+          mkdir -p AppDir/usr/bin
+          cp bin/BeamMP-Launcher AppDir/usr/bin/BeamMP-Launcher
+          echo -e "[Desktop Entry]\nName=BeamMP Launcher\nExec=BeamMP-Launcher\nType=Application\nCategories=Game;" > AppDir/BeamMP-Launcher.desktop
+          
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+          ./appimagetool-x86_64.AppImage --appimage-extract
+          ./squashfs-root/AppRun AppDir release_assets/BeamMP-Launcher-$TAG-x86_64.AppImage
+
+          # 2. Build .deb Package (1-click graphical install for Ubuntu/Debian/Mint)
+          mkdir -p deb_package/DEBIAN
+          mkdir -p deb_package/usr/bin
+          
+          cp bin/BeamMP-Launcher deb_package/usr/bin/beammp-launcher
+          
+          cat << EOF > deb_package/DEBIAN/control
+          Package: beammp-launcher
+          Version: $CLEAN_VER
+          Section: games
+          Priority: optional
+          Architecture: amd64
+          Maintainer: Automated Mirror <noreply@github.com>
+          Description: Official launcher for BeamMP (Multiplayer mod for BeamNG.drive)
+          EOF
+          
+          dpkg-deb --build deb_package release_assets/BeamMP-Launcher-$TAG-amd64.deb
+
+      - name: Publish Click-and-Install Release
         if: steps.check_release.outputs.RELEASE_EXISTS == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -82,4 +110,5 @@ jobs:
             --repo "${{ github.repository }}" \
             --title "$TITLE" \
             --notes "$BODY" \
-            release_assets/BeamMP-Launcher-$TAG-Linux-x86_64.tar.gz
+            release_assets/*.AppImage \
+            release_assets/*.deb
